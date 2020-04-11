@@ -1,3 +1,5 @@
 fitbitvenv/
 fitbit.ini
 .vscode/
+data/
+.DS_Store
