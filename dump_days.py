@@ -160,3 +160,9 @@ while not previously_dumped(date):
 
 # Always redump the last dumped day because we may have dumped it before the day was finished.
 dump_day(authd_client, date)
+
+daily_goals = authd_client.activities_daily_goal()
+weekly_goals = authd_client.activities_weekly_goal()
+goals = { 'daily': daily_goals, 'weekly': weekly_goals }
+with open(os.path.join(DUMP_DIR, f'goals_{ str(datetime.date.today()) }.json'), 'w') as f:
+    json.dump(goals, f, indent=2)
