@@ -111,7 +111,12 @@ if __name__ == "__main__":
     if not ns.date is None:
         date = ns.date
 
-pause_between_days = 60
+# 9 API calls to get 1 day
+# 150 API calls allowed per hour
+# 150/9 = 16.67 - Can dump 16 days/hour
+# 60/16 = 3.75  - Can dump one day every 3.75 minutes (conservatively)
+# 3.75 * 60 = 225 - 225 seconds pause between days
+pause_between_days = 225
 days_since_last_expiry = 0
 api_timeouts = 0
 api_server_errors = 0
@@ -124,9 +129,12 @@ while not previously_dumped(date):
         curtime = datetime.datetime.now()
         restart_time = datetime.datetime.time(curtime + datetime.timedelta(seconds=e.retry_after_secs))
         logmsg('too many requests! waiting {0} seconds, at {1}'.format(e.retry_after_secs, restart_time))
-        pause_between_days = int(pause_between_days + 1 + (e.retry_after_secs/days_since_last_expiry))
-        days_since_last_expiry = 0
-        logmsg('new pause between days %i seconds' % pause_between_days)
+        if days_since_last_expiry > 0:
+            pause_between_days = int(pause_between_days + 1 + (e.retry_after_secs/days_since_last_expiry))
+            days_since_last_expiry = 0
+            logmsg('new pause between days %i seconds' % pause_between_days)
+        else:
+            logmsg('two TooManyRequests errors in a row, not reseting pause between days')
         time.sleep(e.retry_after_secs + 10)
     except HTTPUnauthorized as e:
         logmsg('token has expired, exiting. start with new date: {}'.format(date))
