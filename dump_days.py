@@ -1,14 +1,20 @@
 #!/usr/bin/env python
-import fitbit
-import configparser
-import datetime
-import os
-import time
-import json
-from fitbit.exceptions import HTTPTooManyRequests
-from fitbit.exceptions import HTTPUnauthorized
 import argparse
 import sys
+import configparser
+import datetime
+import json
+import os
+import time
+
+# Apply patch for missing Retry-After header before importing fitbit
+import fitbit_patch
+
+import fitbit
+import urllib3
+
+from fitbit.exceptions import HTTPTooManyRequests
+from fitbit.exceptions import HTTPUnauthorized
 
 DUMP_DIR = 'data'
 
@@ -120,8 +126,10 @@ pause_between_days = 225
 days_since_last_expiry = 0
 api_timeouts = 0
 api_server_errors = 0
+retry_current_date = False
 
-while not previously_dumped(date):
+while not previously_dumped(date) or retry_current_date:
+    retry_current_date = False
     logmsg('dumping: {}'.format(date))
     try:
         r = dump_day(authd_client, date)
@@ -136,6 +144,8 @@ while not previously_dumped(date):
         else:
             logmsg('two TooManyRequests errors in a row, not reseting pause between days')
         time.sleep(e.retry_after_secs + 10)
+        retry_current_date = True
+        continue
     except HTTPUnauthorized as e:
         logmsg('token has expired, exiting. start with new date: {}'.format(date))
         sys.exit(1)
@@ -146,15 +156,23 @@ while not previously_dumped(date):
         logmsg('Timeout error: pausing and retrying in {} seconds'.format(pause_between_days))
         api_timeouts += 1
         time.sleep(pause_between_days)
+        retry_current_date = True
+        continue
     except fitbit.exceptions.HTTPServerError as e:
-        print('server error!')
-        print(e.args)
+        logmsg(f"server error! {e.args}")
         if api_server_errors > 5:
             logmsg('too many Server Errors in a row. exiting')
             sys.exit(1)
         logmsg('Server error: pausing and retrying in {} seconds'.format(pause_between_days))
         api_server_errors += 1
         time.sleep(pause_between_days)
+        retry_current_date = True
+        continue
+    except urllib3.exceptions.ProtocolError as e:
+        logmsg('ProtocolError: pausing and retrying in {} seconds'.format(pause_between_days))
+        time.sleep(pause_between_days)
+        retry_current_date = True
+        continue
     else:
         days_since_last_expiry += 1
         date -= datetime.timedelta(days=1)
@@ -165,6 +183,8 @@ while not previously_dumped(date):
         # wait a minute just to not throttle the API since we can only do 150
         # calls per hour
         time.sleep(pause_between_days)
+
+print(f'Finished dumping because we reached previously dumped day: {format(date)}')
 
 # Always redump the last dumped day because we may have dumped it before the day was finished.
 dump_day(authd_client, date)
